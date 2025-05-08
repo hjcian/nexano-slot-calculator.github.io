@@ -1,18 +1,225 @@
-<!-- A hello world page for testing github pages -->
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-Hant">
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hello World</title>
-    <link rel="stylesheet" href="styles.css">
+    <title>Slot 擺放模擬計算器</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 2rem;
+            background: #f7f9fa;
+        }
+
+        .card {
+            background: white;
+            border-radius: 1rem;
+            padding: 2rem;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            max-width: 600px;
+            margin: auto;
+        }
+
+        label {
+            display: block;
+            margin-top: 1rem;
+            font-weight: bold;
+        }
+
+        input {
+            width: 100%;
+            padding: 0.5rem;
+            font-size: 1rem;
+        }
+
+        button {
+            margin-top: 1.5rem;
+            padding: 0.75rem 2rem;
+            font-size: 1rem;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 0.5rem;
+            cursor: pointer;
+        }
+
+        #result {
+            margin-top: 2rem;
+        }
+
+        canvas {
+            width: 100%;
+            height: 400px;
+            background: #eee;
+        }
+    </style>
 </head>
 
 <body>
-    <h1>Hello, World!</h1>
-    <p>This is a simple HTML page to test GitHub Pages.</p>
-</body>
+    <div class="card">
+        <h2>Slot 擺放模擬計算器</h2>
+        <label>Slot 長 (cm)：<input type="number" id="slotL" value="25.5"></label>
+        <label>Slot 寬 (cm)：<input type="number" id="slotW" value="25.5"></label>
+        <label>Slot 高 (cm)：<input type="number" id="slotH" value="25.5"></label>
+        <label>Slot 重量限制 (g)：<input type="number" id="slotWeightLimit" value="2000"></label>
 
+        <label>商品 長 (cm)：<input type="number" id="itemL" value="10"></label>
+        <label>商品 寬 (cm)：<input type="number" id="itemW" value="5"></label>
+        <label>商品 高 (cm)：<input type="number" id="itemH" value="15"></label>
+        <label>商品 重量 (g)：<input type="number" id="itemWeight" value="200"></label>
+
+        <button onclick="calculateFit()">計算</button>
+
+        <div id="result"></div>
+        <div id="threeContainer"></div>
+    </div>
+
+    <!-- Three.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+    <script>
+        function calculateFit() {
+            const slot = {
+                L: parseFloat(document.getElementById("slotL").value),
+                W: parseFloat(document.getElementById("slotW").value),
+                H: parseFloat(document.getElementById("slotH").value),
+                weightLimit: parseFloat(document.getElementById("slotWeightLimit").value)
+            };
+            const item = {
+                L: parseFloat(document.getElementById("itemL").value),
+                W: parseFloat(document.getElementById("itemW").value),
+                H: parseFloat(document.getElementById("itemH").value),
+                weight: parseFloat(document.getElementById("itemWeight").value)
+            };
+
+            const orientations = [
+                ["L", "W", "H"],
+                ["L", "H", "W"],
+                ["W", "L", "H"],
+                ["W", "H", "L"],
+                ["H", "L", "W"],
+                ["H", "W", "L"]
+            ];
+
+            let maxCount = 0;
+            let bestLayout = null;
+
+            for (const ori of orientations) {
+                const l = item[ori[0]];
+                const w = item[ori[1]];
+                const h = item[ori[2]];
+
+                const countL = Math.floor(slot.L / l);
+                const countW = Math.floor(slot.W / w);
+                const countH = Math.floor(slot.H / h);
+
+                const total = countL * countW * countH;
+
+                if (total > maxCount) {
+                    maxCount = total;
+                    bestLayout = {
+                        orientation: ori,
+                        dims: [l, w, h],
+                        countL, countW, countH,
+                        total
+                    };
+                }
+            }
+
+            // 考慮重量限制，計算實際可放置數量
+            const maxByWeight = Math.floor(slot.weightLimit / item.weight);
+            const weightLimited = maxByWeight < bestLayout.total;
+            const actualCount = weightLimited ? maxByWeight : bestLayout.total;
+            const totalWeight = actualCount * item.weight;
+
+            // 更新 bestLayout 物件以反映重量限制
+            bestLayout.weightLimited = weightLimited;
+            bestLayout.actualCount = actualCount;
+            bestLayout.totalWeight = totalWeight;
+
+            // 顯示結果，包含重量限制資訊
+            document.getElementById("result").innerHTML =
+                `<h3>最大可放：${actualCount} 個${weightLimited ? ' (受重量限制)' : ''}</h3>
+<p>最佳擺放方向：${bestLayout.orientation.join("-")}（對應長寬高）</p>
+<p>每層 ${bestLayout.countL} x ${bestLayout.countW}，共 ${bestLayout.countH} 層</p>
+<p>總重量：${totalWeight.toFixed(1)} g / ${slot.weightLimit} g</p>
+${weightLimited ? `<p>空間理論上可放：${bestLayout.total} 個</p>` : ''}`;
+
+            drawBoxes(slot, bestLayout);
+        }
+
+        function drawBoxes(slot, layout) {
+            // Remove old canvas
+            const oldCanvas = document.querySelector("canvas");
+            if (oldCanvas) oldCanvas.remove();
+
+            const scene = new THREE.Scene();
+            const camera = new THREE.PerspectiveCamera(75, 600 / 400, 0.1, 1000);
+            const renderer = new THREE.WebGLRenderer();
+            renderer.setSize(600, 400);
+            document.getElementById("threeContainer").appendChild(renderer.domElement);
+
+            const slotGeo = new THREE.BoxGeometry(slot.L, slot.H, slot.W);
+            const slotMat = new THREE.MeshBasicMaterial({ color: 0xcccccc, wireframe: true });
+            const slotBox = new THREE.Mesh(slotGeo, slotMat);
+            scene.add(slotBox);
+
+            const [l, w, h] = layout.dims;
+            let count = 0;
+
+            // 計算需要顯示的箱子層數和每層的排列
+            const itemPerLayer = layout.countL * layout.countW;
+            const fullLayersToShow = Math.floor(layout.actualCount / itemPerLayer);
+            const remainingItems = layout.actualCount % itemPerLayer;
+
+            // 繪製完整層
+            for (let z = 0; z < fullLayersToShow; z++) {
+                for (let y = 0; y < layout.countW; y++) {
+                    for (let x = 0; x < layout.countL; x++) {
+                        const box = new THREE.Mesh(
+                            new THREE.BoxGeometry(l, h, w),
+                            new THREE.MeshBasicMaterial({ color: 0x3daee9 })
+                        );
+                        box.position.set(
+                            -slot.L / 2 + l / 2 + x * l,
+                            -slot.H / 2 + h / 2 + z * h,
+                            -slot.W / 2 + w / 2 + y * w
+                        );
+                        scene.add(box);
+                        count++;
+                    }
+                }
+            }
+
+            // 繪製剩餘的箱子
+            if (remainingItems > 0) {
+                const z = fullLayersToShow;
+                for (let i = 0; i < remainingItems; i++) {
+                    const y = Math.floor(i / layout.countL);
+                    const x = i % layout.countL;
+                    const box = new THREE.Mesh(
+                        new THREE.BoxGeometry(l, h, w),
+                        new THREE.MeshBasicMaterial({ color: 0x3daee9 })
+                    );
+                    box.position.set(
+                        -slot.L / 2 + l / 2 + x * l,
+                        -slot.H / 2 + h / 2 + z * h,
+                        -slot.W / 2 + w / 2 + y * w
+                    );
+                    scene.add(box);
+                    count++;
+                }
+            }
+
+            camera.position.set(60, 60, 60);
+            camera.lookAt(0, 0, 0);
+
+            const animate = function () {
+                requestAnimationFrame(animate);
+                renderer.render(scene, camera);
+            };
+            animate();
+        }
+    </script>
+</body>
 
 </html>
